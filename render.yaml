@@ -1,0 +1,22 @@
+# Render Deployment Configuration
+services:
+  - type: worker
+    name: utkarsh-telegram-bot
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python telegram_bot_v2.py
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: UTKARSH_USERNAME
+        sync: false
+      - key: UTKARSH_PASSWORD
+        sync: false

@@ -1,0 +1,7 @@
+pyrogram>=2.0.0
+tgcrypto
+pycryptodome
+yt-dlp
+requests
+tqdm
+aiohttp

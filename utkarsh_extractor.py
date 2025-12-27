@@ -2,7 +2,6 @@
 Utkarsh URL Extractor Module
 Wrapper around utkarshwofree.py for use with Telegram bot
 """
-
 import requests
 import json
 import os
@@ -12,17 +11,14 @@ from base64 import b64decode, b64encode
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
-
 # Configuration
 API_URL = "https://application.utkarshapp.com/index.php/data_model"
 COMMON_KEY = b"%!^F&^$)&^$&*$^&"
 COMMON_IV = b"#*v$JvywJvyJDyvJ"
 key_chars = "%!F*&^$)_*%3f&B+"
 iv_chars = "#*$DJvyw2w%!_-$@"
-
 MAX_WORKERS = 8
 file_lock = Lock()
-
 HEADERS = {
     "Authorization": "Bearer 152#svf346t45ybrer34yredk76t",
     "Content-Type": "text/plain; charset=UTF-8",
@@ -33,8 +29,6 @@ HEADERS = {
     "userid": "0",
     "version": "152"
 }
-
-
 class UtkarshExtractor:
     """Extract video URLs from Utkarsh batch"""
     
@@ -121,27 +115,43 @@ class UtkarshExtractor:
     def login(self, username, password):
         """Login to Utkarsh and get tokens"""
         try:
+            print(f"[LOGIN] Starting login with username: {username}")
+            
             # Get CSRF token
             base_url = 'https://online.utkarsh.com/'
-            r1 = self.session.get(base_url)
+            r1 = self.session.get(base_url, timeout=30)
             self.csrf_token = r1.cookies.get('csrf_name')
             
             if not self.csrf_token:
+                print("[LOGIN] CSRF token not found in cookies")
+                print(f"[LOGIN] Cookies: {r1.cookies.get_dict()}")
                 raise ValueError("CSRF token not found")
+            
+            print(f"[LOGIN] Got CSRF token: {self.csrf_token[:20]}...")
             
             # Login
             login_url = 'https://online.utkarsh.com/web/Auth/login'
             login_data = {'mobile': username, 'password': password, 'csrf_name': self.csrf_token}
             
-            r2 = self.session.post(login_url, data=login_data)
+            r2 = self.session.post(login_url, data=login_data, timeout=30)
+            print(f"[LOGIN] Login response status: {r2.status_code}")
+            
             r2_json = r2.json()
+            print(f"[LOGIN] Login response: {str(r2_json)[:200]}...")
             
             if r2_json.get("status") != 200:
+                print(f"[LOGIN] Login failed with status: {r2_json.get('status')}")
                 raise ValueError(f"Login failed: {r2_json}")
             
             dr1 = self.decrypt_and_load_json(r2_json.get("response"))
+            if not dr1:
+                print("[LOGIN] Failed to decrypt login response")
+                raise ValueError("Decryption failed")
+            
             t = dr1.get("token")
             jwt = dr1.get("data", {}).get("jwt")
+            
+            print(f"[LOGIN] Got token and JWT")
             
             self.h = {
                 "token": t,
@@ -152,15 +162,22 @@ class UtkarshExtractor:
             
             # Get user profile
             profile = self.post_request("/users/get_my_profile", use_common_key=True)
+            if not profile or "data" not in profile:
+                print(f"[LOGIN] Profile request failed: {profile}")
+                raise ValueError("Profile request failed")
+            
             user_id = profile["data"]["id"]
             HEADERS["userid"] = user_id
             
             self.key = "".join(key_chars[int(i)] for i in (user_id + "1524567456436545")[:16]).encode()
             self.iv = "".join(iv_chars[int(i)] for i in (user_id + "1524567456436545")[:16]).encode()
             
+            print(f"[LOGIN] Login successful! User ID: {user_id}")
             return True
         except Exception as e:
-            print(f"Login error: {e}")
+            print(f"[LOGIN] Login error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def extract_batch(self, batch_id, username=None, password=None):

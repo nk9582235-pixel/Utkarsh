@@ -124,26 +124,41 @@ class UtkarshExtractor:
             
             if not self.csrf_token:
                 print("[LOGIN] CSRF token not found in cookies")
-                print(f"[LOGIN] Cookies: {r1.cookies.get_dict()}")
                 raise ValueError("CSRF token not found")
             
-            print(f"[LOGIN] Got CSRF token: {self.csrf_token[:20]}...")
+            print(f"[LOGIN] Got CSRF token")
             
-            # Login
+            # Login with correct format (matching utkarshwofree.py)
             login_url = 'https://online.utkarsh.com/web/Auth/login'
-            login_data = {'mobile': username, 'password': password, 'csrf_name': self.csrf_token}
+            login_data = {
+                'csrf_name': self.csrf_token,
+                'mobile': username,
+                'url': '0',
+                'password': password,
+                'submit': 'LogIn',
+                'device_token': 'null'
+            }
+            # Use browser-like headers
+            login_headers = {
+                'Host': 'online.utkarsh.com',
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/119.0.6045.199 Safari/537.36'
+            }
             
-            r2 = self.session.post(login_url, data=login_data, timeout=30)
+            r2 = self.session.post(login_url, data=login_data, headers=login_headers, timeout=30)
             print(f"[LOGIN] Login response status: {r2.status_code}")
             
             r2_json = r2.json()
-            print(f"[LOGIN] Login response: {str(r2_json)[:200]}...")
+            response_data = r2_json.get("response")
             
-            if r2_json.get("status") != 200:
-                print(f"[LOGIN] Login failed with status: {r2_json.get('status')}")
-                raise ValueError(f"Login failed: {r2_json}")
+            if not response_data:
+                print(f"[LOGIN] No response data: {r2_json}")
+                raise ValueError("No response data")
             
-            dr1 = self.decrypt_and_load_json(r2_json.get("response"))
+            # Decrypt the response
+            dr1 = self.decrypt_and_load_json(response_data)
             if not dr1:
                 print("[LOGIN] Failed to decrypt login response")
                 raise ValueError("Decryption failed")
@@ -151,8 +166,13 @@ class UtkarshExtractor:
             t = dr1.get("token")
             jwt = dr1.get("data", {}).get("jwt")
             
+            if not t or not jwt:
+                print(f"[LOGIN] Missing token/jwt: {dr1}")
+                raise ValueError("Missing token or jwt")
+            
             print(f"[LOGIN] Got token and JWT")
             
+            # Store headers for subsequent requests
             self.h = {
                 "token": t,
                 "jwt": jwt,

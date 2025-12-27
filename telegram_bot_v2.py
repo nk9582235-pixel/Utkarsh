@@ -2,7 +2,6 @@
 Utkarsh Telegram Bot V2 - Fast Streaming Upload
 Downloads and uploads simultaneously without saving to disk
 """
-
 import asyncio
 import os
 import sys
@@ -10,11 +9,25 @@ import io
 import time
 import logging
 import aiohttp
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.errors import FloodWait
-
+# Simple HTTP handler for Render health check
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Bot is running!')
+    def log_message(self, format, *args):
+        pass  # Suppress logs
+def start_health_server():
+    port = int(os.environ.get('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    server.serve_forever()
 # Import config
 try:
     from bot_config import (
@@ -25,28 +38,19 @@ try:
 except ImportError:
     print("❌ Please configure bot_config.py with your credentials!")
     sys.exit(1)
-
 # Import extractor
 from utkarsh_extractor import UtkarshExtractor
-
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 # Create download directory
 Path(DOWNLOAD_PATH).mkdir(parents=True, exist_ok=True)
-
 # Initialize bot
 app = Client("utkarsh_bot_v2", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
 # State management
 user_sessions = {}
-
-
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
-
-
 def format_size(size_bytes):
     """Format bytes to human readable"""
     for unit in ['B', 'KB', 'MB', 'GB']:
@@ -54,13 +58,9 @@ def format_size(size_bytes):
             return f"{size_bytes:.2f}{unit}"
         size_bytes /= 1024
     return f"{size_bytes:.2f}TB"
-
-
 def format_speed(bytes_per_sec):
     """Format speed to human readable"""
     return f"{bytes_per_sec / (1024*1024):.2f}MiB/s"
-
-
 async def stream_upload_video(client: Client, chat_id: int, url: str, title: str, 
                               status_msg: Message, idx: int, total: int):
     """
@@ -109,10 +109,8 @@ async def stream_upload_video(client: Client, chat_id: int, url: str, title: str
                         
                         progress_text = f"""
 📥 **𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃𝐈𝐍𝐆 𝐕𝐈𝐃𝐄𝐎** 📥
-
 🗃️ File Size: {format_size(total_size)}
 📂 File Name: {title[:50]}...
-
 ╔══════════════════════════╗
 ╠  ✨ **𝐔𝐓𝐊𝐀𝐑𝐒𝐇 𝐁𝐎𝐓** ⁬
 ╚══════════════════════════╝
@@ -156,10 +154,8 @@ async def stream_upload_video(client: Client, chat_id: int, url: str, title: str
                         try:
                             await status_msg.edit_text(f"""
 📤 **𝐔𝐏𝐋𝐎𝐀𝐃𝐈𝐍𝐆 𝐕𝐈𝐃𝐄𝐎** 📤
-
 🗃️ File Size: {format_size(total)}
 📂 File Name: {title[:50]}...
-
 ╭━━━━━━━━━━━━━━━━➣
 ┃  {progress_bar} ({percent:.1f}%)
 ┣⪼ 𝗦𝗣𝗘𝗘𝗗 ⚡ ➠ {format_speed(speed)}
@@ -178,10 +174,8 @@ async def stream_upload_video(client: Client, chat_id: int, url: str, title: str
                     buffer,
                     caption=f"""
 ——— ✦ {idx} ✦ ———
-
 🎞️ Title: {title}
 📚 Course: Utkarsh Batch
-
 🌟 Extracted By: Utkarsh Bot
 """,
                     progress=upload_progress
@@ -192,8 +186,6 @@ async def stream_upload_video(client: Client, chat_id: int, url: str, title: str
     except Exception as e:
         logger.error(f"Stream error: {e}")
         return False, str(e)
-
-
 @app.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
@@ -202,21 +194,16 @@ async def start_command(client: Client, message: Message):
     
     welcome = """
 🎓 **Utkarsh Video Bot V2** ⚡
-
 *Fast Streaming Upload - No Disk Required!*
-
 Commands:
 • `/batch <id>` - Extract URLs from batch ID
 • `/download` - Stream videos directly to Telegram
 • `/setchannel <id>` - Set destination channel (0 = personal)
 • `/status` - Check progress
 • `/cancel` - Cancel current operation
-
 Example: `/batch 19376`
 """
     await message.reply(welcome)
-
-
 @app.on_message(filters.command("batch") & filters.private)
 async def batch_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
@@ -266,8 +253,6 @@ async def batch_command(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Extraction error: {e}")
         await status_msg.edit_text(f"❌ Error: {str(e)[:200]}")
-
-
 @app.on_message(filters.command("setchannel") & filters.private)
 async def setchannel_command(client: Client, message: Message):
     """Set destination channel for uploads"""
@@ -281,13 +266,10 @@ async def setchannel_command(client: Client, message: Message):
         current = user_sessions.get(user_id, {}).get('destination', DESTINATION_CHAT_ID)
         await message.reply(f"""
 📍 **Set Destination Channel**
-
 Current: `{current if current else 'Personal Chat'}`
-
 Usage:
 • `/setchannel 0` - Send to personal chat
 • `/setchannel -1001234567890` - Send to channel
-
 To get channel ID:
 1. Add @userinfobot to channel
 2. Forward any message from channel to it
@@ -306,8 +288,6 @@ To get channel ID:
             await message.reply(f"✅ Videos will be sent to channel: `{channel_id}`")
     except ValueError:
         await message.reply("❌ Invalid channel ID. Use a number like `-1001234567890`")
-
-
 @app.on_message(filters.command("download") & filters.private)
 async def download_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
@@ -330,11 +310,9 @@ async def download_command(client: Client, message: Message):
     
     await message.reply(f"""
 🚀 **𝐒𝐓𝐀𝐑𝐓𝐈𝐍𝐆 𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃** 🚀
-
 ┠ 📊 Total Links = {total}
 ┠ ⚡️ Mode = Streaming (Fast!)
 ┠ 🔗 Batch = {session.get('batch_id')}
-
 ✨ 𝐏𝐎𝐖𝐄𝐑𝐄𝐃 𝐁𝐘: Utkarsh Bot
 """)
     
@@ -377,15 +355,11 @@ async def download_command(client: Client, message: Message):
     
     await message.reply(f"""
 ✅ **𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃 𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐄** ✅
-
 ┠ ✅ Success = {success}
 ┠ ❌ Failed = {failed}
 ┠ 📊 Total = {total}
-
 ✨ 𝐏𝐎𝐖𝐄𝐑𝐄𝐃 𝐁𝐘: Utkarsh Bot
 """)
-
-
 @app.on_message(filters.command("status") & filters.private)
 async def status_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
@@ -403,15 +377,12 @@ async def status_command(client: Client, message: Message):
     
     await message.reply(f"""
 🚀 **𝐂𝐔𝐑𝐑𝐄𝐍𝐓 𝐏𝐑𝐎𝐆𝐑𝐄𝐒𝐒** = {percent:.1f}% 🚀
-
 ┠ 📊 Total Links = {total}
 ┠ ⚡️ Currently On = {idx}
 ┠ ⏳ Remaining = {total - idx}
 ┠ 📁 Batch = {session.get('batch_id')}
 ┠ 🔄 Status = {'Downloading' if session.get('downloading') else 'Paused'}
 """)
-
-
 @app.on_message(filters.command("cancel") & filters.private)
 async def cancel_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
@@ -424,9 +395,13 @@ async def cancel_command(client: Client, message: Message):
         await message.reply("🛑 Cancelled!")
     else:
         await message.reply("ℹ️ Nothing to cancel.")
-
-
 if __name__ == "__main__":
     print("🤖 Starting Utkarsh Bot V2 (Fast Streaming)...")
     print("📝 Commands: /batch, /download, /status, /cancel")
+    
+    # Start health server for Render (keeps free tier happy)
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    print("🌐 Health server started on port", os.environ.get('PORT', 10000))
+    
     app.run()

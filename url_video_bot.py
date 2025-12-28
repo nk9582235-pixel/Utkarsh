@@ -516,15 +516,57 @@ async def setchannel_command(client: Client, message: Message):
     
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("Usage: `/setchannel -1001234567890` or `/setchannel 0`")
+        await message.reply("""
+📍 **Set Destination Channel**
+Usage: `/setchannel <channel_id>`
+**How to get channel ID:**
+1. Add the bot as admin to your channel
+2. Forward any message from channel to @userinfobot
+3. Use the ID (starts with -100)
+Example: `/setchannel -1001234567890`
+Use `/setchannel 0` to reset to personal chat
+""")
         return
     
     try:
         channel_id = int(args[1])
-        user_sessions.setdefault(message.from_user.id, {})['destination'] = channel_id if channel_id else None
-        await message.reply(f"✅ Destination: `{channel_id if channel_id else 'Personal Chat'}`")
-    except:
-        await message.reply("❌ Invalid ID")
+        
+        # Reset to personal chat
+        if channel_id == 0:
+            user_sessions.setdefault(message.from_user.id, {})['destination'] = None
+            await message.reply("✅ Reset to **Personal Chat**")
+            return
+        
+        # Validate channel ID format (should start with -100)
+        if not str(channel_id).startswith('-100'):
+            await message.reply(f"""
+❌ Invalid channel ID format!
+Your ID: `{channel_id}`
+Expected: `-100xxxxxxxxxx`
+Channel IDs must start with `-100`
+Forward a message from your channel to @userinfobot to get the correct ID.
+""")
+            return
+        
+        # Test if bot can send to this channel
+        status_msg = await message.reply("🔍 Testing channel access...")
+        try:
+            test_msg = await client.send_message(channel_id, "✅ Bot connected! (This message will be deleted)")
+            await test_msg.delete()
+            
+            user_sessions.setdefault(message.from_user.id, {})['destination'] = channel_id
+            await status_msg.edit_text(f"✅ **Channel verified!**\n\nDestination: `{channel_id}`\n\nBot can send messages to this channel.")
+        except Exception as e:
+            await status_msg.edit_text(f"""
+❌ **Cannot access channel!**
+Error: `{str(e)[:100]}`
+**Make sure:**
+1. Bot is added to the channel
+2. Bot has **admin privileges** (post messages)
+3. Channel ID is correct
+""")
+    except ValueError:
+        await message.reply("❌ Invalid ID - must be a number")
 @app.on_message(filters.command("status") & filters.private)
 async def status_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):

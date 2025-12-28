@@ -172,11 +172,24 @@ async def handle_document(client: Client, message: Message):
         # Parse URLs and detect types
         urls = []
         type_counts = {'video': 0, 'pdf': 0, 'photo': 0, 'document': 0}
+        batch_name = "Utkarsh Batch"  # Default batch name
+        file_index = 0
         
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith('=') or line.startswith('Course:') or line.startswith('Info:'):
+                if not line:
+                    continue
+                
+                # Extract batch name from Course: line
+                if line.startswith('Course:'):
+                    batch_name = line.replace('Course:', '').strip()
+                    # Remove ID part if present: "SSC CGL Foundation (ID: 17582)"
+                    if '(ID:' in batch_name:
+                        batch_name = batch_name.split('(ID:')[0].strip()
+                    continue
+                
+                if line.startswith('=') or line.startswith('Info:'):
                     continue
                 
                 # Parse format: name:url
@@ -193,12 +206,15 @@ async def handle_document(client: Client, message: Message):
                 if url.startswith('http'):
                     file_type, ext, emoji = detect_file_type(url)
                     type_counts[file_type] += 1
+                    file_index += 1
                     urls.append({
                         'name': name,
                         'url': url,
                         'type': file_type,
                         'ext': ext,
-                        'emoji': emoji
+                        'emoji': emoji,
+                        'index': file_index,
+                        'batch': batch_name
                     })
         
         os.remove(file_path)
@@ -285,8 +301,16 @@ async def upload_command(client: Client, message: Message):
         file_type = item['type']
         ext = item['ext']
         emoji = item['emoji']
+        file_index = item.get('index', idx + 1)
+        batch_name = item.get('batch', 'Utkarsh Batch')
         
         clean_name = "".join(c for c in name if c.isalnum() or c in " -_()").strip()[:55] or f"File_{idx+1}"
+        
+        # Create beautiful caption
+        caption = f"""📚 **Index:** {file_index:03d}
+{emoji} **Title:** {clean_name}
+🎯 **Batch:** {batch_name[:40]}
+⚡ **Uploaded By:** URL Bot"""
         
         # Update progress (every 3 seconds or every file for small batches)
         current_time = time.time()
@@ -413,7 +437,7 @@ async def upload_command(client: Client, message: Message):
                 if file_type == 'video':
                     await client.send_video(
                         dest, tmp_path,
-                        caption=f"🎬 {clean_name}",
+                        caption=caption,
                         file_name=f"{clean_name}{ext}",
                         supports_streaming=True,
                         progress=upload_progress
@@ -421,20 +445,20 @@ async def upload_command(client: Client, message: Message):
                 elif file_type == 'pdf':
                     await client.send_document(
                         dest, tmp_path,
-                        caption=f"📄 {clean_name}",
+                        caption=caption,
                         file_name=f"{clean_name}{ext}",
                         progress=upload_progress
                     )
                 elif file_type == 'photo':
                     await client.send_photo(
                         dest, tmp_path,
-                        caption=f"🖼️ {clean_name}",
+                        caption=caption,
                         progress=upload_progress
                     )
                 else:
                     await client.send_document(
                         dest, tmp_path,
-                        caption=f"📁 {clean_name}",
+                        caption=caption,
                         file_name=f"{clean_name}{ext}",
                         progress=upload_progress
                     )

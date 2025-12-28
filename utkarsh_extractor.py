@@ -140,6 +140,12 @@ class UtkarshExtractor:
     
     def login(self, username, password):
         """Login to Utkarsh and get tokens"""
+        # Check if already logged in via cache
+        global _login_cache
+        if _login_cache['logged_in'] and self.h is not None:
+            print(f"[LOGIN] Already logged in (cached), skipping re-login")
+            return True
+        
         try:
             print(f"[LOGIN] Starting login with username: {username}")
             
@@ -252,8 +258,8 @@ class UtkarshExtractor:
             layer_two_data_url = 'https://online.utkarsh.com/web/Course/get_layer_two_data'
             meta_source_url = '/meta_distributer/on_request_meta_source'
             
-            # Get course data
-            d3 = {"course_id": batch_id, "layer": 0, "page": 1, "parent_id": batch_id, "revert_api": "1#0#0#1", "tile_id": 0, "type": "course"}
+            # Get course data - EXACT format from utkarshwofree.py
+            d3 = {"course_id": batch_id, "revert_api": "1#0#0#1", "parent_id": 0, "tile_id": "15330", "layer": 1, "type": "course_combo"}
             de1 = self.encrypt_stream(json.dumps(d3))
             d4 = {'tile_input': de1, 'csrf_name': self.csrf_token}
             
@@ -266,6 +272,11 @@ class UtkarshExtractor:
                 return [], None
             
             dr3 = self.decrypt_and_load_json(r4)
+            
+            # Check if course is purchased
+            if isinstance(dr3, dict) and dr3.get("is_purchased") == 0:
+                print(f"[EXTRACT] Batch {batch_id} NOT PURCHASED on this account!")
+                raise ValueError(f"Batch {batch_id} not purchased on account")
             
             if not dr3 or "data" not in dr3:
                 print(f"[EXTRACT] Failed to decrypt or no data: {dr3}")

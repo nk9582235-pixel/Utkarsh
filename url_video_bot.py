@@ -3,7 +3,6 @@ URL to Video Bot - Streaming Upload with Detailed Progress
 Features: ETA, Progress Bar, Speed, File Type Stats
 Render-Ready with Health Check Server
 """
-
 import os
 import asyncio
 import logging
@@ -16,11 +15,9 @@ from pathlib import Path
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.errors import FloodWait
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 # =============================================================================
 # HEALTH CHECK SERVER FOR RENDER
 # =============================================================================
@@ -32,13 +29,11 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b'URL Video Bot is running!')
     def log_message(self, format, *args):
         pass  # Suppress logs
-
 def start_health_server():
     port = int(os.environ.get('PORT', 10000))
     server = HTTPServer(('0.0.0.0', port), HealthHandler)
     print(f"🌐 Health server started on port {port}")
     server.serve_forever()
-
 # =============================================================================
 # CONFIGURATION - Environment Variables for Render
 # =============================================================================
@@ -51,11 +46,9 @@ except ImportError:
     API_HASH = os.environ.get("API_HASH")
     BOT_TOKEN = os.environ.get("BOT_TOKEN")
     ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "915101089").split(",")]
-
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-
 def format_time(seconds):
     """Convert seconds to human readable format"""
     if seconds < 60:
@@ -67,7 +60,6 @@ def format_time(seconds):
         h, remainder = divmod(int(seconds), 3600)
         m, s = divmod(remainder, 60)
         return f"{h}h {m}m"
-
 def format_size(bytes_size):
     """Convert bytes to human readable format"""
     for unit in ['B', 'KB', 'MB', 'GB']:
@@ -75,7 +67,6 @@ def format_size(bytes_size):
             return f"{bytes_size:.1f} {unit}"
         bytes_size /= 1024
     return f"{bytes_size:.1f} TB"
-
 def detect_file_type(url: str, content_type: str = ""):
     """Detect file type from URL and content-type"""
     url_lower = url.lower().split('?')[0]
@@ -99,8 +90,6 @@ def detect_file_type(url: str, content_type: str = ""):
         return 'photo', '.jpg', '🖼️'
     
     return 'document', '.bin', '📁'
-
-
 async def download_to_file(url: str, timeout: int = 600):
     """Download URL to temp file (more reliable for large files)"""
     import tempfile
@@ -134,48 +123,36 @@ async def download_to_file(url: str, timeout: int = 600):
     except Exception as e:
         logger.error(f"❌ Download failed: {e}")
         raise
-
-
 # =============================================================================
 # BOT SETUP
 # =============================================================================
 app = Client("streaming_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user_sessions = {}
-
 def is_admin(user_id):
     return user_id in ADMIN_IDS
-
-
 # =============================================================================
 # COMMANDS
 # =============================================================================
-
 @app.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
     await message.reply("""
 🚀 **Streaming URL Bot** ⚡
-
 Send me a TXT file with URLs and I'll stream them to Telegram!
-
 **Features:**
 • ⚡ Fast streaming upload
 • 📊 Live progress with ETA
 • 🎬 Videos, 📄 PDFs, 🖼️ Images support
-
 **Commands:**
 • `/upload` - Start uploading
 • `/setchannel <id>` - Set destination
 • `/status` - View progress
 • `/cancel` - Stop upload
-
 **TXT Format:**
 ```
 Video Name:https://url.com/video.mp4
 PDF Name:https://url.com/file.pdf
 ```
 """)
-
-
 @app.on_message(filters.document & filters.private)
 async def handle_document(client: Client, message: Message):
     """Handle uploaded TXT files"""
@@ -230,43 +207,38 @@ async def handle_document(client: Client, message: Message):
             await status_msg.edit_text("❌ No valid URLs found.")
             return
         
+        # Preserve existing destination if set
+        existing_dest = user_sessions.get(message.from_user.id, {}).get('destination')
+        
         user_sessions[message.from_user.id] = {
             'urls': urls,
             'type_counts': type_counts,
             'current_idx': 0,
             'uploading': False,
             'cancelled': False,
-            'destination': None,
+            'destination': existing_dest,  # Keep existing destination
             'start_time': None,
             'total_bytes': 0
         }
         
         await status_msg.edit_text(f"""
 ✅ **File Analyzed!**
-
 📊 **Total Links: {len(urls)}**
-
 **📁 File Types:**
 🎬 Videos: {type_counts['video']}
 📄 PDFs: {type_counts['pdf']}
 🖼️ Images: {type_counts['photo']}
 📁 Others: {type_counts['document']}
-
 ━━━━━━━━━━━━━━━━━━━━━
-**📍 Where to upload?**
-
-• `/upload` - Send to **this chat**
-• `/setchannel -100xxxxx` - Set channel first
-• `/setchannel 0` - Send to this chat
-
-Then use `/upload` to start! ⚡
+**📍 Current Destination:** `{existing_dest or 'Personal Chat'}`
+• `/upload` - Start uploading
+• `/setchannel -100xxxxx` - Change channel
+• `/setchannel 0` - Reset to personal chat
 """)
         
     except Exception as e:
         logger.error(f"Error: {e}")
         await status_msg.edit_text(f"❌ Error: {str(e)[:200]}")
-
-
 @app.on_message(filters.command("upload") & filters.private)
 async def upload_command(client: Client, message: Message):
     """Start streaming upload with detailed progress"""
@@ -345,23 +317,18 @@ async def upload_command(client: Client, message: Message):
             try:
                 await status_msg.edit_text(f"""
 🚀 **Uploading to Telegram**
-
 **Progress:**
 [{bar}] {percent}%
 📁 {idx}/{total} files
-
 **Current:** {emoji} {clean_name[:30]}...
-
 **Stats:**
 ✅ Success: {success}
 ❌ Failed: {failed}
 ⏭️ Skipped: {skipped}
-
 **Performance:**
 ⏱️ ETA: {eta}
 💾 Uploaded: {format_size(total_bytes)}
 🚄 Speed: {speed_str}
-
 **File Types:**
 🎬 {type_counts['video']} | 📄 {type_counts['pdf']} | 🖼️ {type_counts['photo']} | 📁 {type_counts['document']}
 """)
@@ -373,9 +340,7 @@ async def upload_command(client: Client, message: Message):
         try:
             file_msg = await message.reply(f"""
 📥 **Processing File {idx+1}/{total}**
-
 {emoji} **{clean_name[:45]}**
-
 ⏳ Starting download...
 """)
         except:
@@ -387,9 +352,7 @@ async def upload_command(client: Client, message: Message):
                 try:
                     await file_msg.edit_text(f"""
 📥 **Downloading {idx+1}/{total}**
-
 {emoji} **{clean_name[:45]}**
-
 ⏳ Downloading from CDN...
 🔗 Source: `{url[:50]}...`
 """)
@@ -417,9 +380,7 @@ async def upload_command(client: Client, message: Message):
                 try:
                     await file_msg.edit_text(f"""
 📤 **Uploading {idx+1}/{total}**
-
 {emoji} **{clean_name[:45]}**
-
 📦 Size: **{format_size(size)}**
 ⬆️ Uploading to Telegram...
 """)
@@ -438,9 +399,7 @@ async def upload_command(client: Client, message: Message):
                         try:
                             await file_msg.edit_text(f"""
 📤 **Uploading {idx+1}/{total}**
-
 {emoji} **{clean_name[:40]}**
-
 📦 Size: **{format_size(total_size)}**
 [{upload_bar}] {pct}%
 ⬆️ {format_size(current)} / {format_size(total_size)}
@@ -534,28 +493,22 @@ async def upload_command(client: Client, message: Message):
     status_icon = "⏹️ Cancelled!" if session.get('cancelled') else "✅ Complete!"
     await status_msg.edit_text(f"""
 {status_icon}
-
 **📊 Final Report:**
-
 **Results:**
 ✅ Success: {success}
 ❌ Failed: {failed}
 ⏭️ Skipped: {skipped}
 📁 Total: {total}
-
 **Performance:**
 ⏱️ Time: {format_time(elapsed)}
 💾 Data: {format_size(total_bytes)}
 🚄 Avg Speed: {format_size(total_bytes/elapsed) if elapsed > 0 else 'N/A'}/s
-
 **By Type:**
 🎬 Videos: {type_counts['video']}
 📄 PDFs: {type_counts['pdf']}
 🖼️ Images: {type_counts['photo']}
 📁 Others: {type_counts['document']}
 """)
-
-
 @app.on_message(filters.command("setchannel") & filters.private)
 async def setchannel_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
@@ -572,8 +525,6 @@ async def setchannel_command(client: Client, message: Message):
         await message.reply(f"✅ Destination: `{channel_id if channel_id else 'Personal Chat'}`")
     except:
         await message.reply("❌ Invalid ID")
-
-
 @app.on_message(filters.command("status") & filters.private)
 async def status_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
@@ -589,20 +540,16 @@ async def status_command(client: Client, message: Message):
     
     await message.reply(f"""
 📊 **Current Status**
-
 📁 Links: {len(urls)}
 📤 Uploading: {'Yes' if session.get('uploading') else 'No'}
 📍 Progress: {session.get('current_idx', 0)}/{len(urls)}
 💾 Uploaded: {format_size(session.get('total_bytes', 0))}
-
 **Types:**
 🎬 Videos: {type_counts.get('video', 0)}
 📄 PDFs: {type_counts.get('pdf', 0)}
 🖼️ Images: {type_counts.get('photo', 0)}
 📁 Others: {type_counts.get('document', 0)}
 """)
-
-
 @app.on_message(filters.command("cancel") & filters.private)
 async def cancel_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
@@ -614,8 +561,6 @@ async def cancel_command(client: Client, message: Message):
         await message.reply("⏹️ Stopping upload...")
     else:
         await message.reply("❌ Nothing to cancel")
-
-
 # =============================================================================
 # MAIN
 # =============================================================================

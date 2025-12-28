@@ -1,12 +1,9 @@
-# Render Deployment Configuration
 services:
-  - type: worker
-    name: utkarsh-telegram-bot
-    runtime: python
-    region: singapore
-    plan: free
+  - type: web
+    name: url-video-bot
+    env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python telegram_bot_v2.py
+    startCommand: python url_video_bot.py
     envVars:
       - key: API_ID
         sync: false
@@ -15,8 +12,4 @@ services:
       - key: BOT_TOKEN
         sync: false
       - key: ADMIN_IDS
-        sync: false
-      - key: UTKARSH_USERNAME
-        sync: false
-      - key: UTKARSH_PASSWORD
         sync: false

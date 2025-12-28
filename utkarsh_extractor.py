@@ -29,15 +29,34 @@ HEADERS = {
     "userid": "0",
     "version": "152"
 }
+# Global login cache - reuse successful login across all extractors
+_login_cache = {
+    'logged_in': False,
+    'session': None,
+    'h': None,
+    'csrf_token': None,
+    'key': None,
+    'iv': None
+}
 class UtkarshExtractor:
     """Extract video URLs from Utkarsh batch"""
     
     def __init__(self):
-        self.session = requests.Session()
-        self.key = None
-        self.iv = None
-        self.csrf_token = None
-        self.h = None
+        global _login_cache
+        # Reuse cached session if already logged in
+        if _login_cache['logged_in']:
+            self.session = _login_cache['session']
+            self.h = _login_cache['h']
+            self.csrf_token = _login_cache['csrf_token']
+            self.key = _login_cache['key']
+            self.iv = _login_cache['iv']
+            print("[EXTRACTOR] Reusing cached login session")
+        else:
+            self.session = requests.Session()
+            self.key = None
+            self.iv = None
+            self.csrf_token = None
+            self.h = None
         
     def encrypt(self, data, use_common_key=False):
         cipher_key = COMMON_KEY if use_common_key else self.key
@@ -199,7 +218,16 @@ class UtkarshExtractor:
             self.key = "".join(key_chars[int(i)] for i in (user_id + "1524567456436545")[:16]).encode()
             self.iv = "".join(iv_chars[int(i)] for i in (user_id + "1524567456436545")[:16]).encode()
             
-            print(f"[LOGIN] Login successful! User ID: {user_id}")
+            # Save to global cache for reuse
+            global _login_cache
+            _login_cache['logged_in'] = True
+            _login_cache['session'] = self.session
+            _login_cache['h'] = self.h
+            _login_cache['csrf_token'] = self.csrf_token
+            _login_cache['key'] = self.key
+            _login_cache['iv'] = self.iv
+            
+            print(f"[LOGIN] Login successful! User ID: {user_id} (cached for reuse)")
             return True
         except Exception as e:
             print(f"[LOGIN] Login error: {e}")

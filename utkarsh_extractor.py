@@ -224,8 +224,7 @@ class UtkarshExtractor:
             self.key = "".join(key_chars[int(i)] for i in (user_id + "1524567456436545")[:16]).encode()
             self.iv = "".join(iv_chars[int(i)] for i in (user_id + "1524567456436545")[:16]).encode()
             
-            # Save to global cache for reuse
-            global _login_cache
+            # Save to global cache for reuse (dict mutation doesn't need global keyword)
             _login_cache['logged_in'] = True
             _login_cache['session'] = self.session
             _login_cache['h'] = self.h

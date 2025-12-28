@@ -60,14 +60,21 @@ class UtkarshExtractor:
             return None
     
     def post_request(self, path, data=None, use_common_key=False):
+        print(f"[API] POST to {path}, jwt present: {'jwt' in HEADERS}")
         encrypted_data = self.encrypt(data, use_common_key) if data else data
-        response = requests.post(f"{API_URL}{path}", headers=HEADERS, data=encrypted_data)
+        response = requests.post(f"{API_URL}{path}", headers=HEADERS, data=encrypted_data, timeout=30)
+        print(f"[API] Response status: {response.status_code}, length: {len(response.text)}")
         decrypted_data = self.decrypt(response.text, use_common_key)
         if decrypted_data:
             try:
-                return json.loads(decrypted_data)
-            except:
+                result = json.loads(decrypted_data)
+                print(f"[API] Success, keys: {list(result.keys()) if isinstance(result, dict) else 'list'}")
+                return result
+            except Exception as e:
+                print(f"[API] JSON parse error: {e}")
                 pass
+        else:
+            print(f"[API] Decryption failed for response: {response.text[:100]}...")
         return {}
     
     def decrypt_stream(self, enc):
@@ -211,6 +218,8 @@ class UtkarshExtractor:
                 return [], None
         
         try:
+            print(f"[EXTRACT] Starting extraction for batch: {batch_id}")
+            
             tiles_data_url = 'https://online.utkarsh.com/web/Course/tiles_data'
             layer_two_data_url = 'https://online.utkarsh.com/web/Course/get_layer_two_data'
             meta_source_url = '/meta_distributer/on_request_meta_source'
@@ -220,12 +229,22 @@ class UtkarshExtractor:
             de1 = self.encrypt_stream(json.dumps(d3))
             d4 = {'tile_input': de1, 'csrf_name': self.csrf_token}
             
+            print(f"[EXTRACT] Requesting course data...")
             u4 = self.session.post(tiles_data_url, headers=self.h, data=d4).json()
             r4 = u4.get("response")
+            
+            if not r4:
+                print(f"[EXTRACT] No response from tiles_data: {u4}")
+                return [], None
+            
             dr3 = self.decrypt_and_load_json(r4)
             
             if not dr3 or "data" not in dr3:
+                print(f"[EXTRACT] Failed to decrypt or no data: {dr3}")
                 return [], None
+            
+            courses = dr3.get("data", [])
+            print(f"[EXTRACT] Found {len(courses)} courses in batch")
             
             # Create output file
             fn = f"Batch_{batch_id}.txt"

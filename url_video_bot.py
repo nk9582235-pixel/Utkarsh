@@ -225,10 +225,6 @@ async def handle_document(client: Client, message: Message):
                     continue
                 
                 if url.startswith('http'):
-                    # Skip invalid URL formats
-                    if '.ws' in url.lower() or 'cloudfront.net/null' in url.lower():
-                        logger.info(f"⏭️ Skipping invalid URL format: {url[:50]}")
-                        continue
                     
                     file_type, ext, emoji = detect_file_type(url)
                     type_counts[file_type] += 1
@@ -344,10 +340,10 @@ async def upload_command(client: Client, message: Message):
         
         clean_name = "".join(c for c in name if c.isalnum() or c in " -_()").strip()[:55] or f"File_{idx+1}"
         
-        # Create beautiful caption
-        caption = f"""📚 **Index:** {file_index:03d}
+        # Create beautiful caption (use idx+1 for sequential index based on filtered list)
+        caption = f"""📚 **Index:** {idx + 1:03d}
 {emoji} **Title:** {clean_name}
-🎯 **Batch:** {batch_name[:40]}
+🎯 **Batch:** {batch_name}
 ⚡ **Uploaded By:** URL Bot"""
         
         # Update progress (every 3 seconds or every file for small batches)

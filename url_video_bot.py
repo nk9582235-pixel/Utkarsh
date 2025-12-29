@@ -90,39 +90,60 @@ def detect_file_type(url: str, content_type: str = ""):
         return 'photo', '.jpg', '🖼️'
     
     return 'document', '.bin', '📁'
-async def download_to_file(url: str, timeout: int = 600):
-    """Download URL to temp file (more reliable for large files)"""
+async def download_to_file(url: str, timeout: int = 600, max_retries: int = 3):
+    """Download URL to temp file with retry logic"""
     import tempfile
-    downloaded = 0
     
-    try:
-        logger.info(f"📥 Downloading: {url[:80]}...")
+    for attempt in range(max_retries):
+        downloaded = 0
+        tmp_path = None
         
-        # Create temp file
-        suffix = '.mp4' if 'mp4' in url or 'video' in url else '.tmp'
-        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-        tmp_path = tmp.name
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                if resp.status != 200:
-                    logger.error(f"❌ HTTP {resp.status} for {url[:50]}")
-                    raise Exception(f"HTTP {resp.status}")
-                
-                content_type = resp.headers.get('Content-Type', '')
-                total_size = int(resp.headers.get('Content-Length', 0))
-                logger.info(f"📦 Size: {total_size/1024/1024:.1f}MB, Type: {content_type}")
-                
-                async for chunk in resp.content.iter_chunked(1024 * 1024):  # 1MB chunks
-                    tmp.write(chunk)
-                    downloaded += len(chunk)
-        
-        tmp.close()
-        logger.info(f"✅ Downloaded to temp: {downloaded/1024/1024:.1f}MB")
-        return tmp_path, downloaded, content_type
-    except Exception as e:
-        logger.error(f"❌ Download failed: {e}")
-        raise
+        try:
+            logger.info(f"📥 Downloading{f' (attempt {attempt+1})' if attempt > 0 else ''}: {url[:80]}...")
+            
+            # Create temp file
+            suffix = '.mp4' if 'mp4' in url or 'video' in url else '.tmp'
+            tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+            tmp_path = tmp.name
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
+                    if resp.status != 200:
+                        logger.error(f"❌ HTTP {resp.status} for {url[:50]}")
+                        raise Exception(f"HTTP {resp.status}")
+                    
+                    content_type = resp.headers.get('Content-Type', '')
+                    total_size = int(resp.headers.get('Content-Length', 0))
+                    logger.info(f"📦 Size: {total_size/1024/1024:.1f}MB, Type: {content_type}")
+                    
+                    async for chunk in resp.content.iter_chunked(1024 * 1024):  # 1MB chunks
+                        tmp.write(chunk)
+                        downloaded += len(chunk)
+            
+            tmp.close()
+            
+            # Verify download is complete
+            if total_size > 0 and downloaded < total_size * 0.99:
+                raise Exception(f"Incomplete download: {downloaded}/{total_size} bytes")
+            
+            logger.info(f"✅ Downloaded to temp: {downloaded/1024/1024:.1f}MB")
+            return tmp_path, downloaded, content_type
+            
+        except Exception as e:
+            # Cleanup temp file on failure
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+            
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 5  # 5s, 10s, 15s
+                logger.warning(f"⚠️ Retry {attempt+1}/{max_retries} in {wait_time}s: {e}")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(f"❌ Download failed after {max_retries} attempts: {e}")
+                raise
 # =============================================================================
 # BOT SETUP
 # =============================================================================
@@ -204,6 +225,11 @@ async def handle_document(client: Client, message: Message):
                     continue
                 
                 if url.startswith('http'):
+                    # Skip invalid URL formats
+                    if '.ws' in url.lower() or 'cloudfront.net/null' in url.lower():
+                        logger.info(f"⏭️ Skipping invalid URL format: {url[:50]}")
+                        continue
+                    
                     file_type, ext, emoji = detect_file_type(url)
                     type_counts[file_type] += 1
                     file_index += 1
@@ -277,7 +303,19 @@ async def upload_command(client: Client, message: Message):
     session['start_time'] = time.time()
     session['total_bytes'] = 0
     
-    urls = session['urls']
+    # Apply filter
+    all_urls = session['urls']
+    filter_type = session.get('filter', 'all')
+    
+    if filter_type == 'all':
+        urls = all_urls
+    else:
+        urls = [u for u in all_urls if u['type'] == filter_type]
+    
+    if not urls:
+        await message.reply(f"❌ No {filter_type} files found in this batch!")
+        session['uploading'] = False
+        return
     type_counts = session['type_counts']
     total = len(urls)
     dest = session.get('destination') or message.chat.id
@@ -561,14 +599,17 @@ Use `/setchannel 0` to reset to personal chat
             await message.reply("✅ Reset to **Personal Chat**")
             return
         
-        # Validate channel ID format (should start with -100)
-        if not str(channel_id).startswith('-100'):
+        # Validate channel ID format (should start with -100 and be 13-14 chars)
+        id_str = str(channel_id)
+        if not id_str.startswith('-100') or len(id_str) < 13 or len(id_str) > 14:
             await message.reply(f"""
-❌ Invalid channel ID format!
-Your ID: `{channel_id}`
-Expected: `-100xxxxxxxxxx`
-Channel IDs must start with `-100`
-Forward a message from your channel to @userinfobot to get the correct ID.
+❌ **Invalid channel ID format!**
+Your ID: `{channel_id}` ({len(id_str)} chars)
+Expected: `-100xxxxxxxxxx` (13-14 chars)
+**Your ID looks wrong because:** {'Too many digits' if len(id_str) > 14 else 'Too few digits' if len(id_str) < 13 else 'Invalid format'}
+**How to get correct ID:**
+1. Forward any message from your channel to `@userinfobot`
+2. Copy the ID exactly (example: `-1001234567890`)
 """)
             return
         
@@ -591,6 +632,57 @@ Error: `{str(e)[:100]}`
 """)
     except ValueError:
         await message.reply("❌ Invalid ID - must be a number")
+@app.on_message(filters.command("filter") & filters.private)
+async def filter_command(client: Client, message: Message):
+    """Filter URLs by type: videos, pdfs, photos, all"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    user_id = message.from_user.id
+    session = user_sessions.get(user_id)
+    
+    if not session or not session.get('urls'):
+        await message.reply("❌ No URLs loaded. Send a TXT file first!")
+        return
+    
+    args = message.text.lower().split()
+    if len(args) < 2:
+        # Show current filter and options
+        current_filter = session.get('filter', 'all')
+        type_counts = session.get('type_counts', {})
+        await message.reply(f"""
+🎯 **Filter URLs by Type**
+**Current filter:** `{current_filter}`
+**Options:**
+• `/filter video` - Only videos ({type_counts.get('video', 0)})
+• `/filter pdf` - Only PDFs ({type_counts.get('pdf', 0)})
+• `/filter photo` - Only photos ({type_counts.get('photo', 0)})
+• `/filter all` - All files ({len(session.get('urls', []))})
+This will filter which files to upload when you use `/upload`.
+""")
+        return
+    
+    filter_type = args[1]
+    valid_filters = ['video', 'pdf', 'photo', 'all']
+    
+    if filter_type not in valid_filters:
+        await message.reply(f"❌ Invalid filter. Use: `{', '.join(valid_filters)}`")
+        return
+    
+    session['filter'] = filter_type
+    
+    # Count how many files match the filter
+    urls = session.get('urls', [])
+    if filter_type == 'all':
+        count = len(urls)
+    else:
+        count = sum(1 for u in urls if u['type'] == filter_type)
+    
+    await message.reply(f"""
+✅ **Filter set to: `{filter_type}`**
+📊 {count} files will be uploaded when you use `/upload`
+Use `/filter all` to reset.
+""")
 @app.on_message(filters.command("status") & filters.private)
 async def status_command(client: Client, message: Message):
     if not is_admin(message.from_user.id):
